@@ -1,4 +1,4 @@
-IMG := r0ckstar/litellm-proxy
+IMG := litellm-proxy
 
 .PHONY: docker-build
 docker-build:

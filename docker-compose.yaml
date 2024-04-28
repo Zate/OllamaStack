@@ -1,0 +1,98 @@
+version: '3.6'
+services:
+  litellm-proxy:
+    image: docker.io/local/litellm-proxy
+    container_name: litellm-proxy
+    command:
+      - '--drop_params'
+      - '--config'
+      - '/config.yaml'
+    ports:
+      - 8000:8000
+    restart: unless-stopped
+    build:
+      context: docker
+      dockerfile: Dockerfile
+    volumes:
+      - ./litellm-config.yaml:/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/hosts:/etc/hosts:ro
+    networks:
+      - litellm-proxy
+  
+  open-webui:
+    build:
+      context: open-webui
+      args:
+        OLLAMA_BASE_URL: '/ollama'
+      dockerfile: Dockerfile
+    image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG-main}
+    container_name: open-webui
+    volumes:
+      - open-webui:/app/backend/data
+    ports:
+      - ${OPEN_WEBUI_PORT-3000}:8080
+    environment:
+      - 'OLLAMA_BASE_URL=http://ollama:11434'
+      - 'WEBUI_SECRET_KEY='
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
+    networks:
+      - litellm-proxy
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    ports:
+      - 9090:9090
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    restart: unless-stopped
+    networks:
+      - litellm-proxy
+
+  grafana:
+    image: grafana/grafana-enterprise
+    container_name: grafana
+    ports:
+      - 3000:3000
+    environment:
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/dashboard.json
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    restart: unless-stopped
+    networks:
+      - litellm-proxy
+
+networks:
+  litellm-proxy:
+    driver: bridge
+
+volumes:
+  open-webui:
+
+
+  # docker run --mount type=bind,source="$(pwd)"/litellm-config.yaml,target=/config.yaml,readonly \
+  #   -p 8000:8000 --add-host=host.docker.internal:host-gateway \
+  #   -d --name litellm-proxy ghcr.io/yeahdongcn/litellm-proxy:main --drop_params --config /config.yaml
+
+  #  docker run --pull always -d -p 3001:8080 --add-host=host.docker.internal:host-gateway -v ollama-webui:/app/backend/data \
+  #       --name ollama-webui --restart always ghcr.io/ollama-webui/ollama-webui:main
+
+  #  docker run -d -p 9090:9090 --name prometheus -v $PWD/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml prom/prometheus
+  #   docker rm -f grafana >/dev/null 2>&1
+  #   docker run -d -p 3000:3000 --name grafana \
+  #       -v "$(pwd)/grafana/datasources:/etc/grafana/provisioning/datasources" \
+  #       -v "$(pwd)/grafana/dashboards:/var/lib/grafana/dashboards" \
+  #       -e "GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/dashboard.json" \
+  #       -e "GF_SECURITY_ADMIN_USER=admin" \
+  #       -e "GF_SECURITY_ADMIN_PASSWORD=admin" \
+  #       -e "GF_AUTH_ANONYMOUS_ENABLED=true" \
+  #       -e "GF_AUTH_ANONYMOUS_ORG_ROLE=Admin" \
+  #       grafana/grafana-enterprise
